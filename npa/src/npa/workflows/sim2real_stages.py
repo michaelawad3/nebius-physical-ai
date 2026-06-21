@@ -313,16 +313,29 @@ def _reference_augment_local(
     frames_dir.mkdir(parents=True, exist_ok=True)
     rng = random.Random(config.seed)
     frame_count = resolve_augment_frame_count(rollout_count=config.rollout_count)
+    # Structured prompt-sweep: expand the plain-English goal into per-frame,
+    # multi-axis Cosmos-ready variations (lighting/weather/background/object/
+    # texture/camera). Falls back to a legacy single perturbation label so the
+    # output contract stays backward compatible.
+    from npa.workflows import prompt_sweep
+
+    augment_goal = prompt_sweep.resolve_goal(config)
     index: list[dict[str, Any]] = []
     for index_no in range(frame_count):
         frame_path = frames_dir / f"frame-{index_no:05d}.json"
+        variation = prompt_sweep.generate_variation(
+            augment_goal, index_no, seed=config.seed
+        )
         payload = {
             "schema": "npa.sim2real.augmented_frame.v1",
             "frame_id": f"frame-{index_no:05d}",
             "source_dataset_uri": input_uri,
-            "perturbation": rng.choice(
-                ["lighting", "texture", "background", "contrast"]
-            ),
+            # Legacy single-label perturbation (backward compatible).
+            "perturbation": variation["perturbation"],
+            # Structured multi-axis sweep spec + Cosmos-ready prompt.
+            "goal": augment_goal,
+            "axes": variation["axes"],
+            "enhanced_prompt": variation["enhanced_prompt"],
             "status": "reference_augmented",
         }
         _write_json(frame_path, payload)
